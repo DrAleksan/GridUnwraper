@@ -1,14 +1,17 @@
 import numpy as np
 import cv2
-import pickle
 import cmath
 import matplotlib.pyplot as plt
-from Grid import KGrid
-import random
+import pickle
+
 
 
 NUMBER_OF_CELL = 1  # Номер текущей клетки
 NUMBER_TO_DICT = {}  # Map, отображающий номер клетки в клетку
+
+founded_mask = None
+
+
 
 POINT_TO_CELL = {}  # Map, отображающий точку в пару (клетка, номер точки)
 
@@ -21,24 +24,28 @@ SIZEY = 800
 
 thresholded = None
 
+
 class Cell:
-
-
-    def __init__(self, image, mask, founded_mask, build=True, main=False):
+    def __init__(self, mask, input_founded_mask, build=True, main=False):
         global SIZEX
         global SIZEY
-        SIZEY, SIZEX, _ = image.shape
+        global founded_mask
+        founded_mask = input_founded_mask
+        SIZEY, SIZEX = founded_mask.shape
         self.main = main
-        self.image = image
-        self.mask = mask # маска в которой контур чёрный а внутренность белая
+        self.mask = mask
 
         self.p1, self.p2, self.p3, self.p4, self.successful = 0, 0, 0, 0, True
         self.d1, self.d2, self.d3, self.d4 = 0, 0, 0, 0
         self.center = [0, 0]
         self.len_h = 0
         self.len_w = 0
+        self.number = -1
 
-        self.solid = [False, False, False, False]
+        self.top_neighborhood = None
+        self.bottom_neighborhood = None
+        self.right_neighborhood = None
+        self.left_neighborhood = None
 
         if build:
             self.calc_all()
@@ -47,6 +54,7 @@ class Cell:
                 return
 
             NUMBER_TO_DICT[NUMBER_OF_CELL] = self
+            self.number = NUMBER_OF_CELL
             color_square_and_increase_number(founded_mask, [self.p1, self.p2, self.p3, self.p4])
 
     def calc_all(self):
@@ -54,17 +62,12 @@ class Cell:
 
         if not self.successful:
             return
-
-        # cv2.circle(self.image, (self.p1[0], self.p1[1]), 3, (255, 255, 255), -1)
-        # cv2.circle(self.image, (self.p2[0], self.p2[1]), 3, (255, 255, 255), -1)
-        # cv2.circle(self.image, (self.p3[0], self.p3[1]), 3, (255, 255, 255), -1)
-        # cv2.circle(self.image, (self.p4[0], self.p4[1]), 3, (255, 255, 255), -1)
-
         self.d1, self.d2, self.d3, self.d4 = self.find_directions(self.p1, self.p2,
                                                                   self.p3, self.p4)
 
         if not self.successful:
             return
+
 
         self.bind_points(self.p1, self.p2, self.p3, self.p4)
 
@@ -138,18 +141,6 @@ class Cell:
         if not founded:
             asign_area(self, x, y, 4)
 
-    @classmethod
-    def create_from_cell(cls, image, width, height, mask, center, points, directions, founded_mask, thresholded):
-        new_cell = cls(image, width, height, mask, founded_mask, thresholded, build=False)
-        new_cell.mask = mask
-        new_cell.has_mask = True
-        new_cell.p1, new_cell.p2, new_cell.p3, new_cell.p4 = points
-        new_cell.d1, new_cell.d2, new_cell.d3, new_cell.d4 = directions
-        new_cell.center = [center[1], center[0]]
-        NUMBER_TO_DICT[NUMBER_OF_CELL] = new_cell
-        color_square_and_increase_number(founded_mask, [new_cell.p1, new_cell.p2, new_cell.p3, new_cell.p4])
-        return new_cell
-
     @staticmethod
     def find_points(segment):  # p1 - левая верхняя точка
                                # p2 - левая нижняя точка
@@ -195,128 +186,33 @@ class Cell:
         # d4 - направление влево
 
 
-        # first_direction1 = (p1, p2)
-        # first_direction2 = (p3, p4)
-        # intersect = self.find_intersect(first_direction1, first_direction2)
-        # if 1 >= intersect >= -1: # В эту ветвь ничего не должно попадать
-        #     print("problems")
-        #     first_direction1 = (p1, p3)
-        #     first_direction2 = (p2, p4)
-        #     second_direction1 = (p1, p4)
-        #     second_direction2 = (p2, p3)
-        # else:
-        #     second_direction1 = (p1, p3)
-        #     second_direction2 = (p2, p4)
-        #     intersect = self.find_intersect(second_direction1, second_direction2)
-        #     if 1 >= intersect >= -1:
-        #         second_direction1 = (p1, p4)
-        #         second_direction2 = (p2, p3)
-        #     else: # Сюда видимо тоже
-        #         print("Problems")
+        d1 = build_vector(p1, p2)
+        d11 = build_vector(p4, p3)
 
-        first_direction1 = (p1, p4)
-        first_direction2 = (p2, p3)
+        d2 = build_vector(p2, p1)
 
-        second_direction1 = (p1, p2)
-        second_direction2 = (p4, p3)
+        d3 = build_vector(p4, p1)
+        d31 = build_vector(p3, p2)
 
+        d4 = build_vector(p1, p4)
 
-        v11 = (first_direction1[0][0] - first_direction1[1][0], first_direction1[0][1] - first_direction1[1][1])
-        v12 = (first_direction2[0][0] - first_direction2[1][0], first_direction2[0][1] - first_direction2[1][1])
-        v21 = (second_direction1[0][0] - second_direction1[1][0], second_direction1[0][1] - second_direction1[1][1])
-        v22 = (second_direction2[0][0] - second_direction2[1][0], second_direction2[0][1] - second_direction2[1][1])
+        dist1 = np.linalg.norm(d1)
+        dist11 = np.linalg.norm(d11)
 
-        dist1 = cmath.sqrt((first_direction1[0][0] - first_direction1[1][0]) ** 2 + (
-                first_direction1[0][1] - first_direction1[1][1]) ** 2).real
-        dist2 = cmath.sqrt((first_direction2[0][0] - first_direction2[1][0]) ** 2 + (
-                first_direction2[0][1] - first_direction2[1][1]) ** 2).real
+        dist3 = np.linalg.norm(d3)
+        dist31 = np.linalg.norm(d31)
 
-        dist3 = cmath.sqrt((second_direction1[0][0] - second_direction1[1][0]) ** 2 + (
-                    second_direction1[0][1] - second_direction1[1][1]) ** 2).real
-        dist4 = cmath.sqrt((second_direction2[0][0] - second_direction2[1][0]) ** 2 + (
-                    second_direction2[0][1] - second_direction2[1][1]) ** 2).real
-
-        if abs(dist1 - dist2) > 2 or abs(dist3 - dist4) > 2: # обобщить
+        if dist1 != dist11 or dist3 != dist31:
             self.successful = False
             return 0, 0, 0, 0
 
-        self.len_h = dist3
-        self.len_w = dist1
-
-#        print(dist1/dist3)
-
-        if dist1/dist3 > 2 or dist1/dist3 < .6: #переделать на орентировку на стреднее значение
+        if np.dot(d1, d11) < 0.9999 or np.dot(d3, d31) < 0.9999:
             self.successful = False
             return 0, 0, 0, 0
 
-        if abs(self.calculatte_angle(v11, v12)) < 0.99 or abs(self.calculatte_angle(v21, v22)) < 0.99:
-            self.successful = False
-            return 0, 0, 0, 0
 
-        n11 = self.get_ortogonal(v11)
-        n12 = self.get_ortogonal(v12)
-        n21 = self.get_ortogonal(v21)
-        n22 = self.get_ortogonal(v22)
+        return d1, d2, d3, d4
 
-        if self.dot(n11, (0, 1)) < 0:
-            n11 = (-n11[0], -n11[1])
-
-        if self.dot(n12, (0, -1)) < 0:
-            n12 = (-n12[0], -n12[1])
-
-        if self.dot(n21, (-1, 0)) < 0:
-            n21 = (-n21[0], -n21[1])
-
-        if self.dot(n22, (1, 0)) < 0:
-            n22 = (-n22[0], -n22[1])
-
-        r11 = self.sum_and_normalize(n11, n12)
-        r12 = (-r11[0], -r11[1])
-        r21 = self.sum_and_normalize(n21, n22)
-        r22 = (-r21[0], -r21[1])
-
-        return r11, r12, r21, r22
-
-    @staticmethod
-    def get_ortogonal(v):
-        x, y = v
-        return y, -x
-
-    def calculatte_angle(self, v, u):
-        dot = self.dot(v, u)
-        n1 = cmath.sqrt(self.dot(v, v)).real
-        n2 = cmath.sqrt(self.dot(u, u)).real
-        return dot / (n1 * n2)
-
-    @staticmethod
-    def dot(v1, v2):
-        return v1[0] * v2[0] + v1[1] * v2[1]
-
-    def sum_and_normalize(self, v1, v2):
-        v1 = list(v1)
-        v2 = list(v2)
-        dot = self.dot(v1, v2)
-        if dot < 0:
-            v1[0] = -v1[0]
-            v1[1] = -v1[1]
-        result = (v1[0] + v2[0], v1[1] + v2[1])
-        value = cmath.sqrt(self.dot(result, result)).real
-        result = (result[0] / value, result[1] / value)
-        return result
-
-    @staticmethod
-    def find_intersect(ps1, ps2):
-        (x1, y1), (x2, y2) = ps1
-        (x3, y3), (x4, y4) = ps2
-
-        numerator = (-x4 * y1 + x2 * y1 - y2 * x1 + y2 * x2 + y2 * x4 - y2 * x2 + y4 * x1 - y4 * x2)
-        denominator = (x3 * y1 - x4 * y1 - x3 * y2 + x4 * y2 - y3 * x1 + y3 * x2 + y4 * x1 - y4 * x2)
-
-        if denominator != 0:
-            return numerator / \
-                   denominator
-        else:
-            return 1000
 
     def adjust_point(self, x, y, number):
         cell, n = POINT_TO_CELL[(y, x)][0]
@@ -331,7 +227,10 @@ class Cell:
         value = POINT_TO_CELL[(y, x)]
 
         for elem in POINT_TO_CELL[(y, x)]:
+            points_before = elem[0].get_points()
             elem[0].set_point(new_x, new_y, elem[1])
+            points_after = elem[0].get_points()
+            # recolor_square(points_before, points_after, elem[0])
         clean_POINT_TO_CELL((new_x, new_y))
 
         for j in range(new_y - D, new_y + D):
@@ -343,6 +242,8 @@ class Cell:
         all_p_x = [self.p1[0], self.p2[0], self.p3[0], self.p4[0]]
         all_p_y = [self.p1[1], self.p2[1], self.p3[1], self.p4[1]]
         origin = [np.mean(all_p_x)], [np.mean(all_p_y)]
+
+        print(self.d1)
 
         self.mask = cv2.cvtColor(self.mask, cv2.COLOR_GRAY2BGR)
 
@@ -375,7 +276,7 @@ class Cell:
         plt.quiver(*origin, xs, ys, color=['r', 'b', 'g', 'm'], scale=21)
         plt.show()
 
-    def find_nearby_cells(self, founded_mask, thresholded):  # проблемы с несоединяющимися точками!!!!!!!!!!!!!!!!!!!
+    def find_nearby_cells(self, founded_mask, thresholded):
         dir1 = (self.p1[0] - self.p2[0], self.p1[1] - self.p2[1])
         dir2 = (self.p2[0] - self.p1[0], self.p2[1] - self.p1[1])
 
@@ -387,14 +288,11 @@ class Cell:
         c3 = (int(self.center[0] + dir3[0]), int(self.center[1] + dir3[1]))
         c4 = (int(self.center[0] + dir4[0]), int(self.center[1] + dir4[1]))
 
-        new_upper_cell = None
-        new_bottom_cell = None
 
         result = []
 
         if 0 < c1[0] < SIZEX and 0 < c1[1] < SIZEY and founded_mask[c1[1]][c1[0]] == 0:
-            # cv2.circle(self.image, (c1[0], c1[1]), 3, (255, 255, 255), -1)
-            new_upper_cell = Cell(self.image, self.mask,
+            new_upper_cell = Cell(self.mask,
                               founded_mask, main=False, build=False)
 
             new_upper_cell.p2 = self.p1
@@ -414,14 +312,17 @@ class Cell:
             new_upper_cell.bind_points(new_upper_cell.p1, new_upper_cell.p2, new_upper_cell.p3, new_upper_cell.p4)
 
             NUMBER_TO_DICT[NUMBER_OF_CELL] = new_upper_cell
+            new_upper_cell.number = NUMBER_OF_CELL
             color_square_and_increase_number(founded_mask, [new_upper_cell.p1, new_upper_cell.p2,
                                                             new_upper_cell.p3, new_upper_cell.p4])
 
             result.append(new_upper_cell)
 
+            self.top_neighborhood = new_upper_cell
+
         if 0 < c2[0] < SIZEX and 0 < c2[1] < SIZEY and founded_mask[c2[1]][c2[0]] == 0:
             # cv2.circle(self.image, (c1[0], c1[1]), 3, (255, 255, 255), -1)
-            new_bottom_cell = Cell(self.image, self.mask,
+            new_bottom_cell = Cell(self.mask,
                               founded_mask, main=False, build=False)
 
             new_bottom_cell.p1 = self.p2
@@ -441,15 +342,18 @@ class Cell:
             new_bottom_cell.bind_points(new_bottom_cell.p1, new_bottom_cell.p2, new_bottom_cell.p3, new_bottom_cell.p4)
 
             NUMBER_TO_DICT[NUMBER_OF_CELL] = new_bottom_cell
+            new_bottom_cell.number = NUMBER_OF_CELL
             color_square_and_increase_number(founded_mask, [new_bottom_cell.p1, new_bottom_cell.p2,
                                                             new_bottom_cell.p3, new_bottom_cell.p4])
 
             result.append(new_bottom_cell)
 
+            self.bottom_neighborhood = new_bottom_cell
+
 
         if 0 < c3[0] < SIZEX and 0 < c3[1] < SIZEY and founded_mask[c3[1]][c3[0]] == 0:
             # cv2.circle(self.image, (c1[0], c1[1]), 3, (255, 255, 255), -1)
-            new_right_cell = Cell(self.image, self.mask,
+            new_right_cell = Cell(self.mask,
                               founded_mask, main=False, build=False)
 
             new_right_cell.p1 = self.p4
@@ -471,14 +375,17 @@ class Cell:
             new_right_cell.bind_points(new_right_cell.p1, new_right_cell.p2, new_right_cell.p3, new_right_cell.p4)
 
             NUMBER_TO_DICT[NUMBER_OF_CELL] = new_right_cell
+            new_right_cell.number = NUMBER_OF_CELL
             color_square_and_increase_number(founded_mask, [new_right_cell.p1, new_right_cell.p2,
                                                             new_right_cell.p3, new_right_cell.p4])
 
             result.append(new_right_cell)
 
+            self.right_neighborhood = new_right_cell
+
         if 0 < c4[0] < SIZEX and 0 < c4[1] < SIZEY and founded_mask[c4[1]][c4[0]] == 0:
             # cv2.circle(self.image, (c1[0], c1[1]), 3, (255, 255, 255), -1)
-            new_left_cell = Cell(self.image, self.mask,
+            new_left_cell = Cell(self.mask,
                               founded_mask, main=False, build=False)
 
             new_left_cell.p4 = self.p1
@@ -500,10 +407,13 @@ class Cell:
             new_left_cell.bind_points(new_left_cell.p1, new_left_cell.p2, new_left_cell.p3, new_left_cell.p4)
 
             NUMBER_TO_DICT[NUMBER_OF_CELL] = new_left_cell
+            new_left_cell.number = NUMBER_OF_CELL
             color_square_and_increase_number(founded_mask, [new_left_cell.p1, new_left_cell.p2,
                                                             new_left_cell.p3, new_left_cell.p4])
 
             result.append(new_left_cell)
+
+            self.left_neighborhood = new_left_cell
 
         return result
 
@@ -535,6 +445,43 @@ class Cell:
         if number == 4:
             self.p4 = (x ,y)
 
+    def get_points(self):
+        return (self.p1, self.p2, self.p3, self.p4)
+
+    def get_bottom_neighborhood(self):
+        if self.bottom_neighborhood != None:
+            return self.bottom_neighborhood
+        else:
+            pos = (self.center[0] + self.d2[0], self.center[1] + self.d2[1])
+            if 0 < pos[1] < SIZEY and 0 < pos[0] < SIZEY and founded_mask[pos[1]][pos[0]] != 0:
+                self.bottom_neighborhood = NUMBER_TO_DICT[founded_mask[pos[1]][pos[0]]]
+                return NUMBER_TO_DICT[founded_mask[pos[1]][pos[0]]]
+    def get_top_neighborhood(self):
+        if self.top_neighborhood != None:
+            return self.top_neighborhood
+        else:
+            pos = (self.center[0] + self.d1[0], self.center[1] + self.d1[1])
+            if 0 < pos[1] < SIZEY and 0 < pos[0] < SIZEY and founded_mask[pos[1]][pos[0]] != 0:
+                self.top_neighborhood = NUMBER_TO_DICT[founded_mask[pos[1]][pos[0]]]
+                return NUMBER_TO_DICT[founded_mask[pos[1]][pos[0]]]
+    def get_right_neighborhood(self):
+        if self.right_neighborhood != None:
+            return self.right_neighborhood
+        else:
+            pos = (self.center[0] + self.d3[0], self.center[1] + self.d3[1])
+            if 0 < pos[1] < SIZEY and 0 < pos[0] < SIZEY and founded_mask[pos[1]][pos[0]] != 0:
+                self.right_neighborhood = NUMBER_TO_DICT[founded_mask[pos[1]][pos[0]]]
+                return NUMBER_TO_DICT[founded_mask[pos[1]][pos[0]]]
+    def get_left_neighborhood(self):
+        if self.left_neighborhood != None:
+            return self.left_neighborhood
+        else:
+            pos = (self.center[0] + self.d4[0], self.center[1] + self.d4[1])
+            if 0 < pos[1] < SIZEY and 0 < pos[0] < SIZEY and founded_mask[pos[1]][pos[0]] != 0:
+                self.left_neighborhood = NUMBER_TO_DICT[founded_mask[pos[1]][pos[0]]]
+                return NUMBER_TO_DICT[founded_mask[pos[1]][pos[0]]]
+#    ////// написать get bottom neighborhood
+
     def get_number_to_dict(self):
         return NUMBER_TO_DICT
 
@@ -545,10 +492,25 @@ class Cell:
     #         for i in range(SIZEX):
     #             result +=
 
+
+def build_vector(p1, p2):
+    return (p1[0] - p2[0], p1[1] - p2[1])
+
 def asign_area(cell, x, y, number):
     for j in range(y-D, y+D):
         for i in range(x-D, x+D):
             POINT_TO_CELL[(j, i)] = [(cell, number)]
+
+
+def recolor_square(points_before, points_after, number):
+    global founded_mask
+    points_before = np.array(points_before, 'int32')
+
+    cv2.fillConvexPoly(founded_mask, points_before, 0)
+
+    points_after = np.array(points_after, 'int32')
+
+    cv2.fillConvexPoly(founded_mask, points_after, number)
 
 
 def color_square_and_increase_number(binary, points):
@@ -560,7 +522,6 @@ def color_square_and_increase_number(binary, points):
     cv2.fillConvexPoly(binary, points, NUMBER_OF_CELL)
 
     NUMBER_OF_CELL = NUMBER_OF_CELL + 1
-
 
 def points_to_cell_to_image():
     global POINT_TO_CELL
@@ -574,54 +535,6 @@ def points_to_cell_to_image():
                     image[j][i] += 30
     return image
 
-# def unite_points():
-#
-#     checked = np.ones((800, 800))
-#
-#     for j in range(0, 800):
-#         for i in range(0, 800):
-#             if checked[j][i] == 0:
-#                 continue
-#             if (j, i) in POINT_TO_CELL:
-#                 x = y = 0
-#                 length = len(POINT_TO_CELL[(j, i)])
-#
-#                 if length == 1:
-#                     continue
-#
-#
-#                 for elem in POINT_TO_CELL[(j, i)]:
-#                     cur_point = elem[0].get_point(elem[1])
-#                     x += cur_point[0]
-#                     y += cur_point[1]
-#                 x = int(x/length)
-#                 y = int(y/length)
-#
-#                 for elem in POINT_TO_CELL[(j, i)]:
-#                     elem[0].set_point(x, y, elem[1])
-#
-#                 new_value = POINT_TO_CELL[(j, i)]
-#
-#
-#
-#                 for k in range(y-2*D, y+2*D):
-#                     for l in range(x - 2*D, x+2*D):
-# #                        POINT_TO_CELL[(k, l)] = new_value
-#                         if (k, l) in POINT_TO_CELL:
-#                             if k < 800 and l < 800 and k > 0 and l > 0:
-#                                 checked[k][l] = 0
-#                             del POINT_TO_CELL[(k, l)]
-#
-#                 for k in range(y-D, y+D):
-#                     for l in range(x-D, x+D):
-#                         POINT_TO_CELL[(k, l)] = new_value
-#                 # POINT_TO_CELL[(y, x)] = new_value
-#                 # POINT_TO_CELL[(y, x+1)] = new_value
-#                 # POINT_TO_CELL[(y, x-1)] = new_value
-#                 # POINT_TO_CELL[(y+1, x)] = new_value
-#                 # POINT_TO_CELL[(y -1, x)] = new_value
-#                 i += 4*D
-#     print("ended")
 
 def clean_POINT_TO_CELL(point):
     for j in range(point[1] - 2*D, point[1] + 2*D):
@@ -630,159 +543,32 @@ def clean_POINT_TO_CELL(point):
                 del POINT_TO_CELL[(j, i)]
 
 
-#        roi = self.image[int(c1[0][0] - change - 10):int(c1[0][0] + change + 10), int(c1[1][0] - change - 10):int(c1[1][0] + change + 10)]
-
-'''
-
-with open('saved_variables_t2', 'rb') as f:
-    image, blured_at, all_delete, repaired, output, only_squares, left_top_coords, mean_width, mean_height, final_mask = pickle.load(
-        f)
-
-# cv2.waitKey(0)
-
-founded_mask = np.zeros((800, 800))
-
-cells = []
-
-
-for_experiments = image.copy()
-
-for elem in only_squares:
-
-    segment = output[1] == elem[5]
-    segment = np.multiply(segment, 255)
-    segment = np.uint8(segment)
-
-    c = Cell(for_experiments, elem[cv2.CC_STAT_WIDTH], elem[cv2.CC_STAT_HEIGHT], segment, founded_mask, blured_at, main=True)
-    if c.successful:
-        cells.append(c)
-
-# cv2.imshow("founded", founded_mask)
-# cv2.imshow("new cell before", for_experiments)
 #
-# cv2.imshow("founded points", points_to_cell_to_image())
+# with open('saved_variables_t1', 'rb') as f:
+#     image, blured_at, all_delete, repaired, output, only_squares, left_top_coords, mean_width, mean_height, final_mask = pickle.load(
+#         f)
 #
-# cv2.waitKey(0)
-
-
-cs = []
-
-# for cell in cells:    !!!!!!!!!!!! infinite loop
-#     result = cell.find_nearby_cells(founded_mask, blured_at)
-#     if result is not None:
-#         cells.extend(result)
-#         cs.extend(result)
-#
-#
-# cv2.imshow("new cell before", for_experiments)
-#
-# cv2.imshow("mask before", founded_mask)
-#
-# while len(cs) != 0:
-#     for c in cs:
-#         result = c.find_nearby_cells(founded_mask, blured_at)
-#         cells.extend(result)
-#         cs.extend(result)
-#         cs.pop(0)
-#
-# final_image = image.copy()
-
-# for cell in cells:
-#     cv2.circle(final_image, (cell.center[0], cell.center[1]), 1, (255, 255, 0), -1)
-
-# cv2.imshow("mask", founded_mask)
-#
-# #cv2.imshow("final image", final_image)
-#
-# cv2.imshow("new cell", for_experiments)
-# cv2.waitKey(0)
-
-second_experimental = image.copy()
-
-# for c in cells:
-#     c.draw_points(second_experimental)
-#
-# cv2.imshow("new cell after(main picture)", second_experimental)
-# cv2.imshow("founded points v 1", points_to_cell_to_image())
-
-
-# second_experimental = image.copy()
-#
-
-cur_to_find = cells.copy()
-next_to_find = []
-
-for c in cur_to_find:
-    new_cells = c.find_nearby_cells(founded_mask, blured_at)
-    if new_cells:
-        cells.extend(new_cells)
-        next_to_find.extend(new_cells)
-
-
-
-while len(next_to_find) != 0:
-    cur_to_find = next_to_find.copy()
-    next_to_find = []
-
-
-    for c in cur_to_find:
-        new_cells = c.find_nearby_cells(founded_mask, blured_at)
-        if new_cells:
-            cells.extend(new_cells)
-            next_to_find.extend(new_cells)
-
-
-
-
-for c in cells:
-    c.draw_points(second_experimental)
-
-# cv2.imshow("new cell after", second_experimental)
-# cv2.imshow("founded points v 2", points_to_cell_to_image())
-# cv2.imshow("mask", founded_mask)
-#
-# cv2.waitKey(0)
-
-# unite_points()
-#
-# cv2.imshow("after founding", for_experiments)
-# cv2.imshow("founded", founded_mask)
-# cv2.imshow("white points", for_experiments)
-#
-# cv2.imshow("founded points v 2", points_to_cell_to_image())
-#
-# cv2.waitKey(0)
+# # cv2.waitKey(0)
 #
 # founded_mask = np.zeros((800, 800))
 #
-# NUMBER_OF_CELL = 0
+# cells = []
 #
-# NUMBER_TO_DICT = {}
+#
+# for_experiments = image.copy()
+#
+# for elem in only_squares:
+#
+#     segment = output[1] == elem[5]
+#     segment = np.multiply(segment, 255)
+#     segment = np.uint8(segment)
+#
+#     c = Cell(segment, founded_mask, build=True, main=True)
+#     if c.successful:
+#         cells.append(c)
 #
 # for c in cells:
-#     color_square_and_increase_number(founded_mask, [c.p1, c.p2, c.p3, c.p4])
+#     c.draw_points(for_experiments)
 #
-# cv2.imshow("foundedasdasdad", founded_mask)
-# cv2.waitKey()
-
-third_experimental = image.copy()
-
-grid = KGrid(cells, NUMBER_TO_DICT, founded_mask)
-
-centers = grid.get_centers()
-
-amount = len(centers)
-
-for i, elem in enumerate(centers):
-
-    for e in elem:
-        cv2.circle(third_experimental, (e[0], e[1]), 1, (255, 0, i*(255/amount)), -1)
-cv2.imshow("first row", third_experimental)
-cv2.waitKey(0)
-
-last_experement = image.copy()
-
-cv2.imshow("result", grid.unwrap(last_experement))
-cv2.waitKey(0)
-
-'''
+# cv2.imshow("draw points", for_experiments)
+# cv2.waitKey(0)
