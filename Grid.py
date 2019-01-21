@@ -4,10 +4,10 @@ import pickle
 import cmath
 import matplotlib.pyplot as plt
 
-import cell
+import Cell
 
-SIZEX = 800
-SIZEY = 800
+SIZEX = 5
+SIZEY = 5
 
 
 def make_full(row, x, y, min, max):
@@ -23,29 +23,46 @@ class KGrid:
         global SIZEX
         global SIZEY
         SIZEY, SIZEX = sizey, sizex
-        self.cells = cells.copy()
+        self.cells = cells
 
-        self.connected_cells = np.ndarray(shape = (1, 1), dtype = cell.Cell)
+        self.connected_cells = np.ndarray(shape = (1, 1), dtype = Cell.Cell)
+
+        for c in cells:
+            right = c.get_right_neighborhood()
+            if not (right is None):
+
+                if c.center[0] >= right.center[0]:
+                    print("panic!!!")
+
+            left = c.get_left_neighborhood()
+
+            if not (left is None):
+                if c.center[0] <= left.center[0]:
+                    print("panic !!!!")
+
 
         self.connected_cells[0, 0] = self.cells[0]
 
         self.connect_cells(founded_mask)
 
     def connect_cells(self, founded_mask):
-        rest_cells = [(self.connected_cells[0, 0], (0, 0))]
+        rest_cells = [(self.connected_cells[0][0], (0, 0))]
 
         x_bias, y_bias = 0, 0
 
+        iteration = 0
+
         while len(rest_cells) != 0:
             cur, (y, x) = rest_cells.pop(0)
+
+            if iteration == 2000:
+                break
+            iteration+=1
 
             x = x + x_bias
             y = y + y_bias
 
             leny, lenx = self.connected_cells.shape
-
-            print(f'leny: {leny} lenx: {lenx}')
-            print(self.connected_cells)
 
             if y == leny-1:
                 self.connected_cells = np.insert(self.connected_cells, y+1, [None]*lenx, 0)
@@ -67,30 +84,39 @@ class KGrid:
                 x += 1
                 x_bias += 1
 
-            if self.connected_cells[y+1, x] is None:
-                bottom = cur.get_bottom_neighborhood(founded_mask)
+            if self.connected_cells[y+1][x] is None:
+                bottom = cur.get_bottom_neighborhood()
 
                 if not (bottom is None):
-                    rest_cells.append((bottom, (y + 1 - y_bias, x - x_bias)))
-                    self.connected_cells[y + 1, x] = bottom
 
-            if self.connected_cells[y - 1, x] is None:
-                top = cur.get_upper_neighborhood(founded_mask)
+                    rest_cells.append((bottom, (y + 1 - y_bias, x - x_bias)))
+                    self.connected_cells[y + 1][x] = bottom
+
+            if self.connected_cells[y - 1][x] is None:
+                top = cur.get_top_neighborhood()
                 if not (top is None):
                     rest_cells.append((top, (y - 1 - y_bias, x - x_bias)))
-                    self.connected_cells[y - 1, x] = top
+                    self.connected_cells[y - 1][x] = top
 
-            if self.connected_cells[y, x + 1] is None:
-                right = cur.get_right_neighborhood(founded_mask)
+            if self.connected_cells[y][x + 1] is None:
+                right = cur.get_right_neighborhood()
                 if not (right is None):
-                    rest_cells.append((right, (y - y_bias, x + 1 - x_bias)))
-                    self.connected_cells[y, x + 1] = right
 
-            if self.connected_cells[y, x - 1] is None:
-                left = cur.get_left_neighborhood(founded_mask)
+                    if cur.center[0] >= right.center[0]:
+                        print("!!!! panic right")
+                        continue
+                    rest_cells.append((right, (y - y_bias, x + 1 - x_bias)))
+                    self.connected_cells[y][x + 1] = right
+
+            if self.connected_cells[y][x - 1] is None:
+                left = cur.get_left_neighborhood()
+
                 if not (left is None):
+                    if cur.center[0] <= left.center[0]:
+                        print("!!!! panic left")
+
                     rest_cells.append((left, (y - y_bias, x - 1 - x_bias)))
-                    self.connected_cells[y, x - 1] = left
+                    self.connected_cells[y][x - 1] = left
 
 
         self.height, self.width = self.connected_cells.shape
