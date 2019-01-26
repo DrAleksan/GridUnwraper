@@ -1,8 +1,9 @@
 import cv2
 import numpy as np
 import pickle
+import datetime
 
-from cell import Cell
+from Cell import Cell
 from Grid import KGrid
 
 LINE_WIDTH = 2
@@ -25,7 +26,7 @@ def get_binary_with_grid(image):
     blured_gray = cv2.blur(gray, (3, 3))
 
     blured_at = cv2.adaptiveThreshold(blured_gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                      cv2.THRESH_BINARY_INV, 21, 1)
+                                      cv2.THRESH_BINARY_INV, 151, 0)
 
     something_deleted = use_mask_to_delete(blured_at, iteration=1)
 
@@ -157,9 +158,10 @@ def get_cells_segments(binary):
 
     only_squares = np.empty((0, 6))
 
+
     for i in range(num_labels):
         masses.append(stats[i, cv2.CC_STAT_AREA])
-        if stats[i, cv2.CC_STAT_AREA] < 600 and stats[i, cv2.CC_STAT_AREA] > 200:
+        if stats[i, cv2.CC_STAT_AREA] < 10000 and stats[i, cv2.CC_STAT_AREA] > 100:
             only_squares = np.append(only_squares, [np.append(np.int32(stats[i]), i)], axis=0)
 
     low_labels = labels.copy()
@@ -167,7 +169,7 @@ def get_cells_segments(binary):
     for y in range(labels.shape[0]):
         for x in range(labels.shape[1]):
             low_labels[y][x] = stats[low_labels[y][x], cv2.CC_STAT_AREA]
-            low_labels[y][x] = (low_labels[y][x] < 600 and low_labels[y][x] > 200)
+            low_labels[y][x] = (low_labels[y][x] < 300 and low_labels[y][x] > 100)
 
 
     mean_width = np.mean(only_squares[:, cv2.CC_STAT_WIDTH])
@@ -175,6 +177,13 @@ def get_cells_segments(binary):
 
     only_squares = list(filter(lambda elem: filter_squares(elem, mean_width, mean_height), only_squares))
 
+    picture = np.zeros(binary.shape)
+
+    for square in only_squares:
+        picture += labels == square[5]
+        picture = np.multiply(picture, 255)
+        picture = np.uint8(picture)
+    cv2.imshow("segments", picture)
 
     result = []
 
@@ -194,7 +203,16 @@ def filter_squares(elem, mean_width, mean_height):
     return not(width > mean_width * 1.3 or width < mean_width * 0.7 or
                height > mean_height * 1.3 or height < mean_height * 0.7)
 
+def draw_cells(cells, image):
+    image_to_show = image.copy()
+    for c in cells:
+        c.draw_points(image_to_show)
 
+    cv2.imshow("result", image_to_show)
+    cv2.waitKey(0)
+
+
+time1 = datetime.datetime.now()
 
 image = image_read("t1.jpg", SIZEX, SIZEY)
 
@@ -214,11 +232,13 @@ founded_mask = np.zeros((SIZEY, SIZEX))
 
 print(f'image shape {founded_mask.shape} f_shape {founded_mask.shape}')
 
+time2 = datetime.datetime.now()
+
 cells = []
 
 for segment in segments:
 
-    c = Cell(for_experiments, segment, founded_mask, main=True)
+    c = Cell(segment, founded_mask, main=True)
     if c.successful:
         cells.append(c)
 
@@ -250,11 +270,34 @@ while len(next_to_find) != 0:
 
 
     for c in cur_to_find:
+        if not c.check():
+            continue
+        #draw_cells(cells, image)
         new_cells = c.find_nearby_cells(founded_mask, binary)
         if new_cells:
             cells.extend(new_cells)
             next_to_find.extend(new_cells)
 
+
+# for c in cells:
+#     cur_experiment = image.copy()
+#     cv2.circle(cur_experiment, (c.center[0], c.center[1]), 1, (0, 0, 255), -1)
+#
+#     neigborhoods = [c.get_bottom_neighborhood(), c.get_top_neighborhood(), c.get_right_neighborhood(), c.get_left_neighborhood()]
+#
+#     for (i, n) in enumerate(neigborhoods):
+#         if n is not None:
+#             if i == 0:
+#                 cv2.circle(cur_experiment, (n.center[0], n.center[1]), 3, (255, 0, 255), -1)
+#             elif i == 1:
+#                 cv2.circle(cur_experiment, (n.center[0], n.center[1]), 3, (255, 0, 0), -1)
+#             elif i == 2:
+#                 cv2.circle(cur_experiment, (n.center[0], n.center[1]), 3, (0, 255, 0), -1)
+#             elif i == 3:
+#                 cv2.circle(cur_experiment, (n.center[0], n.center[1]), 3, (255, 255, 255), -1)
+#
+#     cv2.imshow("cur", cur_experiment)
+#     cv2.waitKey(0)
 
 
 
@@ -264,6 +307,8 @@ for c in cells:
 cv2.imshow("new cell after", second_experimental)
 cv2.imshow("mask", founded_mask)
 cv2.waitKey(0)
+
+time3 = datetime.datetime.now()
 
 third_experimental = image.copy()
 
@@ -285,3 +330,7 @@ last_experement = image.copy()
 
 cv2.imshow("result", grid.unwrap(last_experement))
 cv2.waitKey(0)
+
+time_end = datetime.datetime.now()
+
+print(f'first {time2-time1} second {time3-time2} third {time_end-time3} all {time_end-time1}')

@@ -17,7 +17,7 @@ POINT_TO_CELL = {}  # Map, отображающий точку в пару (кл
 
 LINE_WIDTH = 2
 
-D = 5
+D = 3
 
 SIZEX = 800
 SIZEY = 800
@@ -34,6 +34,7 @@ class Cell:
         SIZEY, SIZEX = founded_mask.shape
         self.main = main
         self.mask = mask
+        self.lifetime = 3
 
         self.p1, self.p2, self.p3, self.p4, self.successful = 0, 0, 0, 0, True
         self.d1, self.d2, self.d3, self.d4 = 0, 0, 0, 0
@@ -206,7 +207,7 @@ class Cell:
             self.successful = False
             return 0, 0, 0, 0
 
-        if np.dot(d1, d11) < 0.9999 or np.dot(d3, d31) < 0.9999:
+        if np.dot(d1, d11)/(dist1*dist11) < 0.99 or np.dot(d3, d31)/(dist3*dist31) < 0.99:
             self.successful = False
             return 0, 0, 0, 0
 
@@ -277,6 +278,9 @@ class Cell:
         plt.show()
 
     def find_nearby_cells(self, founded_mask, thresholded):
+        if self.lifetime == 0:
+            return None
+
         dir1 = (self.p1[0] - self.p2[0], self.p1[1] - self.p2[1])
         dir2 = (self.p2[0] - self.p1[0], self.p2[1] - self.p1[1])
 
@@ -308,6 +312,7 @@ class Cell:
             new_upper_cell.center = c1
             new_upper_cell.len_h = self.len_h
             new_upper_cell.len_w = self.len_w
+            new_upper_cell.lifetime = self.lifetime-1
 
             new_upper_cell.bind_points(new_upper_cell.p1, new_upper_cell.p2, new_upper_cell.p3, new_upper_cell.p4)
 
@@ -316,9 +321,12 @@ class Cell:
             color_square_and_increase_number(founded_mask, [new_upper_cell.p1, new_upper_cell.p2,
                                                             new_upper_cell.p3, new_upper_cell.p4])
 
-            result.append(new_upper_cell)
+            if(new_upper_cell.check()):
+                result.append(new_upper_cell)
+                self.top_neighborhood = new_upper_cell
+            else:
+                print("bad cell")
 
-            self.top_neighborhood = new_upper_cell
 
         if 0 < c2[0] < SIZEX and 0 < c2[1] < SIZEY and founded_mask[c2[1]][c2[0]] == 0:
             # cv2.circle(self.image, (c1[0], c1[1]), 3, (255, 255, 255), -1)
@@ -338,6 +346,7 @@ class Cell:
             new_bottom_cell.center = c2
             new_bottom_cell.len_h = self.len_h
             new_bottom_cell.len_w = self.len_w
+            new_bottom_cell.lifetime = self.lifetime - 1
 
             new_bottom_cell.bind_points(new_bottom_cell.p1, new_bottom_cell.p2, new_bottom_cell.p3, new_bottom_cell.p4)
 
@@ -346,9 +355,11 @@ class Cell:
             color_square_and_increase_number(founded_mask, [new_bottom_cell.p1, new_bottom_cell.p2,
                                                             new_bottom_cell.p3, new_bottom_cell.p4])
 
-            result.append(new_bottom_cell)
-
-            self.bottom_neighborhood = new_bottom_cell
+            if(new_bottom_cell.check()):
+                result.append(new_bottom_cell)
+                self.bottom_neighborhood = new_bottom_cell
+            else:
+                print("bad cell")
 
 
         if 0 < c3[0] < SIZEX and 0 < c3[1] < SIZEY and founded_mask[c3[1]][c3[0]] == 0:
@@ -369,6 +380,7 @@ class Cell:
             new_right_cell.center = c3
             new_right_cell.len_h = self.len_h
             new_right_cell.len_w = self.len_w
+            new_right_cell.lifetime = self.lifetime - 1
 
             # print(f'{} {} {} {}')
 
@@ -378,10 +390,11 @@ class Cell:
             new_right_cell.number = NUMBER_OF_CELL
             color_square_and_increase_number(founded_mask, [new_right_cell.p1, new_right_cell.p2,
                                                             new_right_cell.p3, new_right_cell.p4])
-
-            result.append(new_right_cell)
-
-            self.right_neighborhood = new_right_cell
+            if(new_right_cell.check()):
+                result.append(new_right_cell)
+                self.right_neighborhood = new_right_cell
+            else:
+                print("bad cell")
 
         if 0 < c4[0] < SIZEX and 0 < c4[1] < SIZEY and founded_mask[c4[1]][c4[0]] == 0:
             # cv2.circle(self.image, (c1[0], c1[1]), 3, (255, 255, 255), -1)
@@ -401,6 +414,7 @@ class Cell:
             new_left_cell.center = c4
             new_left_cell.len_h = self.len_h
             new_left_cell.len_w = self.len_w
+            new_left_cell.lifetime = self.lifetime - 1
 
             # print(f'{} {} {} {}')
 
@@ -410,10 +424,11 @@ class Cell:
             new_left_cell.number = NUMBER_OF_CELL
             color_square_and_increase_number(founded_mask, [new_left_cell.p1, new_left_cell.p2,
                                                             new_left_cell.p3, new_left_cell.p4])
-
-            result.append(new_left_cell)
-
-            self.left_neighborhood = new_left_cell
+            if(new_left_cell.check()):
+                result.append(new_left_cell)
+                self.left_neighborhood = new_left_cell
+            else:
+                print("bad cell")
 
         return result
 
@@ -423,6 +438,7 @@ class Cell:
         cv2.circle(image, (int(self.p2[0]), int(self.p2[1])), 1, (0, 255, 255), -1)
         cv2.circle(image, (int(self.p3[0]), int(self.p3[1])), 1, (0, 255, 0), -1)
         cv2.circle(image, (int(self.p4[0]), int(self.p4[1])), 1, (0, 0, 255), -1)
+        cv2.circle(image, (self.center[0], self.center[1]), 1, (255, 0, 0), -1)
 
     def get_point(self, number):
 
@@ -453,7 +469,7 @@ class Cell:
             return self.bottom_neighborhood
         else:
             pos = (self.center[0] + self.d2[0], self.center[1] + self.d2[1])
-            if 0 < pos[1] < SIZEY and 0 < pos[0] < SIZEY and founded_mask[pos[1]][pos[0]] != 0:
+            if 0 < pos[1] < SIZEY and 0 < pos[0] < SIZEX and founded_mask[pos[1]][pos[0]] != 0:
                 self.bottom_neighborhood = NUMBER_TO_DICT[founded_mask[pos[1]][pos[0]]]
                 return NUMBER_TO_DICT[founded_mask[pos[1]][pos[0]]]
     def get_top_neighborhood(self):
@@ -461,7 +477,7 @@ class Cell:
             return self.top_neighborhood
         else:
             pos = (self.center[0] + self.d1[0], self.center[1] + self.d1[1])
-            if 0 < pos[1] < SIZEY and 0 < pos[0] < SIZEY and founded_mask[pos[1]][pos[0]] != 0:
+            if 0 < pos[1] < SIZEY and 0 < pos[0] < SIZEX and founded_mask[pos[1]][pos[0]] != 0:
                 self.top_neighborhood = NUMBER_TO_DICT[founded_mask[pos[1]][pos[0]]]
                 return NUMBER_TO_DICT[founded_mask[pos[1]][pos[0]]]
     def get_right_neighborhood(self):
@@ -469,7 +485,7 @@ class Cell:
             return self.right_neighborhood
         else:
             pos = (self.center[0] + self.d3[0], self.center[1] + self.d3[1])
-            if 0 < pos[1] < SIZEY and 0 < pos[0] < SIZEY and founded_mask[pos[1]][pos[0]] != 0:
+            if 0 < pos[1] < SIZEY and 0 < pos[0] < SIZEX and founded_mask[pos[1]][pos[0]] != 0:
                 self.right_neighborhood = NUMBER_TO_DICT[founded_mask[pos[1]][pos[0]]]
                 return NUMBER_TO_DICT[founded_mask[pos[1]][pos[0]]]
     def get_left_neighborhood(self):
@@ -477,10 +493,31 @@ class Cell:
             return self.left_neighborhood
         else:
             pos = (self.center[0] + self.d4[0], self.center[1] + self.d4[1])
-            if 0 < pos[1] < SIZEY and 0 < pos[0] < SIZEY and founded_mask[pos[1]][pos[0]] != 0:
+            if 0 < pos[1] < SIZEY and 0 < pos[0] < SIZEX and founded_mask[pos[1]][pos[0]] != 0:
                 self.left_neighborhood = NUMBER_TO_DICT[founded_mask[pos[1]][pos[0]]]
                 return NUMBER_TO_DICT[founded_mask[pos[1]][pos[0]]]
-#    ////// написать get bottom neighborhood
+
+    def check(self):
+        d1 = build_vector(self.p1, self.p2)
+        d11 = build_vector(self.p4, self.p3)
+
+        d3 = build_vector(self.p4, self.p1)
+        d31 = build_vector(self.p3, self.p2)
+
+        dist1 = np.linalg.norm(d1)
+        dist11 = np.linalg.norm(d11)
+
+        dist3 = np.linalg.norm(d3)
+        dist31 = np.linalg.norm(d31)
+
+        if abs(dist1 - dist11) > 1 or abs(dist3 - dist31) > 1:
+            return False
+
+        print(f'c1 {np.dot(d1, d11)/(dist1*dist11)} c2 {np.dot(d3, d31)/(dist3*dist31)}')
+
+        if np.dot(d1, d11)/(dist1*dist11) < 0.99 or np.dot(d3, d31)/(dist3*dist31) < 0.99:
+            return False
+        return True
 
     def get_number_to_dict(self):
         return NUMBER_TO_DICT

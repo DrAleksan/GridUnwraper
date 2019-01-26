@@ -101,7 +101,6 @@ class KGrid:
             if self.connected_cells[y][x + 1] is None:
                 right = cur.get_right_neighborhood()
                 if not (right is None):
-
                     if cur.center[0] >= right.center[0]:
                         print("!!!! panic right")
                         continue
